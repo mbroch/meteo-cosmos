@@ -158,29 +158,7 @@
   }
   .icon-btn:hover { background: rgba(56,189,248,.15); border-color: var(--neon-blue); }
 
-  /* ── API KEY BANNER ── */
-  #api-banner {
-    background: linear-gradient(90deg, rgba(251,191,36,.12), rgba(251,191,36,.06));
-    border-bottom: 1px solid rgba(251,191,36,.3);
-    padding: 0.6rem 2rem;
-    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
-    font-size: 0.9rem; color: var(--neon-amber);
-    font-family: var(--font-ui);
-  }
-  #api-banner input {
-    background: rgba(0,0,0,.4); border: 1px solid rgba(251,191,36,.4);
-    border-radius: 0.4rem; padding: 0.3rem 0.7rem;
-    color: var(--text-primary); font-size: 0.85rem; width: 260px;
-    outline: none;
-  }
-  #api-banner button {
-    background: rgba(251,191,36,.2); border: 1px solid rgba(251,191,36,.5);
-    border-radius: 0.4rem; padding: 0.3rem 0.8rem;
-    color: var(--neon-amber); cursor: pointer; font-size: 0.85rem;
-    transition: background .2s;
-  }
-  #api-banner button:hover { background: rgba(251,191,36,.35); }
-  #api-banner a { color: var(--neon-amber); }
+
 
   /* ── MAIN CONTENT ── */
   main {
@@ -538,13 +516,7 @@
     </div>
   </header>
 
-  <!-- API KEY BANNER -->
-  <div id="api-banner">
-    <span>🔑 Clé API OpenWeatherMap requise :</span>
-    <input type="password" id="api-key-input" placeholder="Coller votre clé ici..." autocomplete="off">
-    <button onclick="saveApiKey()">Enregistrer</button>
-    <a href="https://openweathermap.org/api" target="_blank">Obtenir une clé gratuite →</a>
-  </div>
+
 
   <main>
     <!-- HERO -->
@@ -661,7 +633,6 @@
 // ══════════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════════
-let apiKey = localStorage.getItem('owm_key') || '';
 let useFahrenheit = false;
 let currentData = null;
 let forecastData = null;
@@ -669,11 +640,24 @@ let speechSynth = window.speechSynthesis;
 let isSpeaking = false;
 let currentWeatherCode = 'clear';
 
-if (apiKey) document.getElementById('api-banner').style.display = 'none';
-
 // Parse shared city from URL
 const urlParams = new URLSearchParams(location.search);
 const sharedCity = urlParams.get('city');
+
+// Open-Meteo WMO code -> description + condition key
+const WMO = {
+  0:{desc:'Ciel dégagé',cond:'clear'},1:{desc:'Principalement dégagé',cond:'clear'},
+  2:{desc:'Partiellement nuageux',cond:'clouds'},3:{desc:'Couvert',cond:'clouds'},
+  45:{desc:'Brouillard',cond:'fog'},48:{desc:'Brouillard givrant',cond:'fog'},
+  51:{desc:'Bruine légère',cond:'drizzle'},53:{desc:'Bruine modérée',cond:'drizzle'},55:{desc:'Bruine dense',cond:'drizzle'},
+  61:{desc:'Pluie légère',cond:'rain'},63:{desc:'Pluie modérée',cond:'rain'},65:{desc:'Pluie forte',cond:'heavy rain'},
+  71:{desc:'Neige légère',cond:'snow'},73:{desc:'Neige modérée',cond:'snow'},75:{desc:'Neige forte',cond:'snow'},77:{desc:'Grains de neige',cond:'snow'},
+  80:{desc:'Averses légères',cond:'rain'},81:{desc:'Averses modérées',cond:'rain'},82:{desc:'Averses violentes',cond:'heavy rain'},
+  85:{desc:'Averses de neige',cond:'snow'},86:{desc:'Averses de neige forte',cond:'snow'},
+  95:{desc:'Orage',cond:'thunderstorm'},96:{desc:'Orage avec grêle',cond:'thunderstorm'},99:{desc:'Orage avec forte grêle',cond:'thunderstorm'}
+};
+function wmoDesc(code){return WMO[code]||{desc:'—',cond:'clear'};}
+const WMO_ICON={clear:'☀️',clouds:'⛅',fog:'🌫️',drizzle:'🌦️',rain:'🌧️','heavy rain':'🌧️',snow:'❄️',thunderstorm:'⛈️'};
 
 // ══════════════════════════════════════════════════
 // STARS BACKGROUND
@@ -817,47 +801,63 @@ function setWeatherAnimation(code) {
 }
 
 // ══════════════════════════════════════════════════
-// API
+// OPEN-METEO API (aucune clé requise)
 // ══════════════════════════════════════════════════
-function saveApiKey() {
-  const key = document.getElementById('api-key-input').value.trim();
-  if (!key) return;
-  apiKey = key;
-  localStorage.setItem('owm_key', key);
-  document.getElementById('api-banner').style.display = 'none';
-  showToast('✅ Clé API enregistrée !');
-  geolocate();
-}
-
-async function fetchWeather(lat, lon) {
-  if (!apiKey) { showToast('⚠️ Clé API manquante'); return; }
+async function fetchWeather(lat, lon, cityName, countryCode) {
   try {
-    const [curr, fore] = await Promise.all([
-      fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=fr`).then(r => r.json()),
-      fetch(`https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=fr&cnt=40`).then(r => r.json())
-    ]);
-    if (curr.cod && curr.cod !== 200) throw new Error(curr.message);
-    currentData = curr;
-    forecastData = fore;
-    updateUI(curr, fore);
+    document.getElementById('loader').classList.remove('hidden');
+    document.getElementById('loader-text').textContent = 'Chargement météo...';
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon
+      + '&current=temperature_2m,relative_humidity_2m,apparent_temperature,'
+      + 'precipitation,weather_code,wind_speed_10m,wind_direction_10m,'
+      + 'surface_pressure,visibility,is_day'
+      + '&hourly=temperature_2m,precipitation_probability,weather_code'
+      + '&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max'
+      + '&timezone=auto&forecast_days=6';
+    const data = await fetch(url).then(r => r.json());
+    const c = data.current;
+    const wmo = wmoDesc(c.weather_code);
+    currentData = {
+      name: cityName || 'Position actuelle', country: countryCode || '',
+      temp: c.temperature_2m, feelsLike: c.apparent_temperature,
+      humidity: c.relative_humidity_2m, windSpeed: c.wind_speed_10m,
+      windDeg: c.wind_direction_10m, pressure: c.surface_pressure,
+      visibility: (c.visibility || 0) / 1000,
+      desc: wmo.desc, cond: wmo.cond, isDay: c.is_day,
+      sunrise: data.daily.sunrise[0], sunset: data.daily.sunset[0],
+      uv: data.daily.uv_index_max[0], lat, lon, raw: data
+    };
+    forecastData = data.hourly.time.slice(0, 24).map((t, i) => ({
+      time: new Date(t), temp: data.hourly.temperature_2m[i],
+      pop: data.hourly.precipitation_probability[i] || 0,
+      cond: wmoDesc(data.hourly.weather_code[i]).cond
+    }));
+    updateUI(currentData, forecastData, data.daily);
   } catch(e) {
-    showToast('❌ Erreur API : ' + e.message);
+    document.getElementById('loader').classList.add('hidden');
+    showToast('Erreur météo : ' + e.message);
   }
 }
 
 async function fetchByCity(city) {
-  if (!apiKey) { showToast('⚠️ Entrez d\'abord votre clé API'); return; }
   try {
-    const geo = await fetch(`https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(city)}&limit=5&appid=${apiKey}`).then(r => r.json());
-    if (!geo.length) { showToast('🔍 Ville introuvable'); return; }
-    if (geo.length === 1) {
+    const res = await fetch(
+      'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(city) + '&count=5&language=fr&format=json'
+    ).then(r => r.json());
+    const results = res.results || [];
+    if (!results.length) { showToast('Ville introuvable'); return; }
+    const mapped = results.map(r => ({
+      name: r.name, country: r.country_code, countryFull: r.country,
+      state: r.admin1 || '', lat: r.latitude, lon: r.longitude
+    }));
+    if (mapped.length === 1) {
       closeSuggestions();
-      await fetchWeather(geo[0].lat, geo[0].lon);
+      await fetchWeather(mapped[0].lat, mapped[0].lon, mapped[0].name, mapped[0].country);
     } else {
-      showSuggestions(geo);
+      showSuggestions(mapped);
     }
   } catch(e) {
-    showToast('❌ ' + e.message);
+    showToast('Erreur : ' + e.message);
   }
 }
 
@@ -901,10 +901,10 @@ function closeSuggestions() {
   box.innerHTML = '';
 }
 
-async function selectSuggestion(lat, lon, name) {
+async function selectSuggestion(lat, lon, name, country) {
   document.getElementById('search-input').value = name;
   closeSuggestions();
-  await fetchWeather(lat, lon);
+  await fetchWeather(lat, lon, name, country);
 }
 
 function searchCity() {
@@ -921,15 +921,12 @@ function geolocate() {
   if (!navigator.geolocation) { fetchByCity('Paris'); return; }
   document.getElementById('loader-text').textContent = 'Géolocalisation...';
   navigator.geolocation.getCurrentPosition(
-    pos => fetchWeather(pos.coords.latitude, pos.coords.longitude),
+    pos => fetchWeather(pos.coords.latitude, pos.coords.longitude, null, null),
     () => fetchByCity('Paris')
   );
 }
 
-function searchCity() {
-  const city = document.getElementById('search-input').value.trim();
-  if (city) fetchByCity(city);
-}
+
 document.getElementById('search-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') searchCity();
   if (e.key === 'Escape') closeSuggestions();
@@ -950,47 +947,29 @@ function toggleUnit() {
   if (currentData) updateUI(currentData, forecastData);
 }
 
-function updateUI(curr, fore) {
+function updateUI(curr, fore, daily) {
   document.getElementById('loader').classList.add('hidden');
-
-  // Hero
   document.getElementById('city-name').textContent = curr.name;
-  document.getElementById('city-country').textContent = curr.sys?.country || '';
-  document.getElementById('temp-main').textContent = toDisplay(curr.main.temp);
+  document.getElementById('city-country').textContent = curr.country;
+  document.getElementById('temp-main').textContent = toDisplay(curr.temp);
   document.getElementById('temp-unit').textContent = unitLabel();
-  document.getElementById('weather-desc').textContent = curr.weather[0].description;
-  document.getElementById('feels-like').textContent = toDisplay(curr.main.feels_like);
-  document.getElementById('humidity').textContent = curr.main.humidity;
-  document.getElementById('wind').textContent = Math.round(curr.wind.speed * 3.6);
-  document.getElementById('pressure').textContent = curr.main.pressure;
-  document.getElementById('visibility').textContent = Math.round((curr.visibility || 0) / 1000);
-  document.getElementById('uv').textContent = '—';
-
-  // Sun times
-  const sunrise = new Date(curr.sys.sunrise * 1000).toLocaleTimeString('fr', {hour:'2-digit', minute:'2-digit'});
-  const sunset = new Date(curr.sys.sunset * 1000).toLocaleTimeString('fr', {hour:'2-digit', minute:'2-digit'});
-  document.getElementById('sun-times').textContent = `${sunrise} / ${sunset}`;
-
-  // Wind compass
-  const windDeg = curr.wind.deg || 0;
-  document.getElementById('wind-needle').style.transform = `rotate(${windDeg}deg)`;
+  document.getElementById('weather-desc').textContent = curr.desc;
+  document.getElementById('feels-like').textContent = toDisplay(curr.feelsLike);
+  document.getElementById('humidity').textContent = curr.humidity;
+  document.getElementById('wind').textContent = Math.round(curr.windSpeed);
+  document.getElementById('pressure').textContent = Math.round(curr.pressure);
+  document.getElementById('visibility').textContent = curr.visibility.toFixed(1);
+  document.getElementById('uv').textContent = curr.uv != null ? curr.uv : '—';
+  const fmtTime = s => new Date(s).toLocaleTimeString('fr',{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('sun-times').textContent = fmtTime(curr.sunrise) + ' / ' + fmtTime(curr.sunset);
+  const windDeg = curr.windDeg || 0;
+  document.getElementById('wind-needle').style.transform = 'rotate(' + windDeg + 'deg)';
   const dirs = ['N','NE','E','SE','S','SO','O','NO'];
   document.getElementById('wind-dir-text').textContent = dirs[Math.round(windDeg / 45) % 8];
-
-  // Weather animation
-  const mainCond = curr.weather[0].main.toLowerCase();
-  setWeatherAnimation(mainCond);
-
-  // D3 chart
+  setWeatherAnimation(curr.cond);
   if (fore) drawForecastChart(fore);
-
-  // Daily forecast
-  updateDailyForecast(fore);
-
-  // Share URL
+  if (daily) updateDailyForecast(daily);
   updateShareUrl(curr.name);
-
-  // Narration + Eco
   generateNarration(curr, fore);
   generateEcoTip(curr);
 }
@@ -1013,12 +992,11 @@ function drawForecastChart(fore) {
 
   const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
-  // Take next 8 data points (24h)
-  const data = fore.list.slice(0, 8).map(d => ({
-    time: new Date(d.dt * 1000),
-    temp: d.main.temp,
-    rain: (d.rain?.['3h'] || 0),
-    pop: d.pop * 100
+  // Take next 8 hourly slots
+  const data = fore.slice(0, 8).map(d => ({
+    time: d.time,
+    temp: d.temp,
+    pop: d.pop
   }));
 
   const x = d3.scaleTime().domain(d3.extent(data, d => d.time)).range([0, iW]);
@@ -1101,32 +1079,21 @@ function drawForecastChart(fore) {
 // ══════════════════════════════════════════════════
 // DAILY FORECAST
 // ══════════════════════════════════════════════════
-function updateDailyForecast(fore) {
-  if (!fore) return;
-  const days = {};
+function updateDailyForecast(daily) {
+  if (!daily) return;
   const dayNames = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
-  fore.list.forEach(item => {
-    const d = new Date(item.dt * 1000);
-    const key = d.toDateString();
-    if (!days[key]) days[key] = {temps: [], icon: item.weather[0].main, name: dayNames[d.getDay()]};
-    days[key].temps.push(item.main.temp);
-  });
-  const entries = Object.values(days).slice(0, 5);
-  const iconMap = {
-    Clear: '☀️', Clouds: '⛅', Rain: '🌧️', Drizzle: '🌦️',
-    Thunderstorm: '⛈️', Snow: '❄️', Mist: '🌫️', Fog: '🌫️',
-    Haze: '🌁', Smoke: '🌫️', Dust: '💨', Tornado: '🌪️'
-  };
-  const html = entries.map(e => `
-    <div class="daily-item">
-      <span class="daily-day">${e.name}</span>
-      <span class="daily-icon">${iconMap[e.icon] || '🌡️'}</span>
-      <span class="daily-temps">
-        <span class="daily-max">${toDisplay(Math.max(...e.temps))}°</span>
-        <span class="daily-min">${toDisplay(Math.min(...e.temps))}°</span>
-      </span>
-    </div>
-  `).join('');
+  const html = daily.time.slice(0, 5).map((dateStr, i) => {
+    const d = new Date(dateStr + 'T12:00:00');
+    const cond = wmoDesc(daily.weather_code[i]).cond;
+    const icon = WMO_ICON[cond] || '🌡️';
+    return '<div class="daily-item">'
+      + '<span class="daily-day">' + dayNames[d.getDay()] + '</span>'
+      + '<span class="daily-icon">' + icon + '</span>'
+      + '<span class="daily-temps">'
+      + '<span class="daily-max">' + toDisplay(daily.temperature_2m_max[i]) + '°</span>'
+      + '<span class="daily-min">' + toDisplay(daily.temperature_2m_min[i]) + '°</span>'
+      + '</span></div>';
+  }).join('');
   document.getElementById('daily-list').innerHTML = html;
 }
 
@@ -1135,41 +1102,38 @@ function updateDailyForecast(fore) {
 // ══════════════════════════════════════════════════
 function generateNarration(curr, fore) {
   const city = curr.name;
-  const temp = toDisplay(curr.main.temp);
+  const temp = toDisplay(curr.temp);
   const unit = unitLabel();
-  const desc = curr.weather[0].description;
-  const humidity = curr.main.humidity;
-  const windKmh = Math.round(curr.wind.speed * 3.6);
-
-  let narration = `À <em>${city}</em>, il fait actuellement <em>${temp}${unit}</em>, avec ${desc}. `;
-
-  // Check next rain
+  const desc = curr.desc;
+  const humidity = curr.humidity;
+  const windKmh = Math.round(curr.windSpeed);
+  let narration = 'A <em>' + city + '</em>, il fait actuellement <em>' + temp + unit + '</em>, ' + desc + '. ';
   if (fore) {
-    const nextRain = fore.list.slice(0, 8).find(d => d.weather[0].main === 'Rain');
-    if (nextRain && curr.weather[0].main !== 'Rain') {
-      const inHours = Math.round((nextRain.dt - Date.now() / 1000) / 3600);
-      narration += `🌧 <em>Pluie dans environ ${inHours}h</em> — pensez à prendre votre parapluie ! `;
+    const now = Date.now();
+    const nextRain = fore.find(d => d.cond.includes('rain') && d.time > now);
+    if (nextRain && !curr.cond.includes('rain')) {
+      const inH = Math.round((nextRain.time - now) / 3600000);
+      narration += '🌧 <em>Pluie dans environ ' + inH + 'h</em> — pensez à prendre votre parapluie ! ';
     }
-    const nextSnow = fore.list.slice(0, 8).find(d => d.weather[0].main === 'Snow');
-    if (nextSnow && curr.weather[0].main !== 'Snow') {
-      const inHours = Math.round((nextSnow.dt - Date.now() / 1000) / 3600);
-      narration += `❄️ <em>Neige prévue dans ${inHours}h</em> — couvrez-vous bien ! `;
+    const nextSnow = fore.find(d => d.cond === 'snow' && d.time > now);
+    if (nextSnow && curr.cond !== 'snow') {
+      const inH = Math.round((nextSnow.time - now) / 3600000);
+      narration += '<em>Neige prévue dans ' + inH + 'h</em> — couvrez-vous bien ! ';
+    }
+    const nextThunder = fore.find(d => d.cond === 'thunderstorm' && d.time > now);
+    if (nextThunder && curr.cond !== 'thunderstorm') {
+      const inH = Math.round((nextThunder.time - now) / 3600000);
+      narration += '<em>Orage prévu dans ' + inH + 'h</em> — prudence ! ';
     }
   }
-
-  if (humidity > 80) narration += `💧 Humidité élevée à <em>${humidity}%</em> — conditions moites. `;
-  if (windKmh > 40) narration += `💨 Vent fort à <em>${windKmh} km/h</em> — tenez bien vos affaires ! `;
-
+  if (humidity > 80) narration += 'Humidité élevée à <em>' + humidity + '%</em> — conditions moites. ';
+  if (windKmh > 40) narration += 'Vent fort à <em>' + windKmh + ' km/h</em> — tenez bien vos affaires ! ';
   const hour = new Date().getHours();
-  if (hour >= 22 || hour < 6) narration += `🌙 Bonne nuit, dormez bien ! `;
-  else if (hour >= 6 && hour < 12) narration += `🌅 Bonne matinée à vous ! `;
-  else if (hour >= 12 && hour < 14) narration += `☀️ Bon appétit et bonne pause déjeuner ! `;
-
+  if (hour >= 22 || hour < 6) narration += 'Bonne nuit, dormez bien ! ';
+  else if (hour >= 6 && hour < 12) narration += 'Bonne matinée à vous ! ';
+  else if (hour >= 12 && hour < 14) narration += 'Bon appétit et bonne pause déjeuner ! ';
   document.getElementById('narration-text').innerHTML = narration;
-
-  // Prepare plain text for speech
-  const plainNarration = narration.replace(/<[^>]*>/g, '').replace(/[🌧❄️💧💨🌙🌅☀️]/gu, '');
-  window._speechText = plainNarration;
+  window._speechText = narration.replace(/<[^>]*>/g, '');
 }
 
 function speak() {
@@ -1191,8 +1155,8 @@ function speak() {
 // ECO TIPS
 // ══════════════════════════════════════════════════
 function generateEcoTip(curr) {
-  const temp = curr.main.temp;
-  const main = curr.weather[0].main.toLowerCase();
+  const temp = curr.temp;
+  const main = curr.cond;
   const hour = new Date().getHours();
   const isDaytime = hour >= 7 && hour < 20;
 
@@ -1215,8 +1179,8 @@ function generateEcoTip(curr) {
   if (main.includes('snow')) {
     tips.push({ icon: '🧊', text: 'Neige au sol : évitez les dégivreurs chimiques pour les allées, ils polluent les nappes phréatiques. Privilégiez le sable.', badge: 'SOL PROTÉGÉ' });
   }
-  if (main.includes('wind') || curr.wind.speed > 5) {
-    tips.push({ icon: '💨', text: `Vent à ${Math.round(curr.wind.speed * 3.6)} km/h — excellent pour les éoliennes. Si votre fournisseur propose du 100% renouvelable, c'est le moment de switcher !`, badge: 'ÉNERGIE ÉOLIENNE' });
+  if (curr.windSpeed > 18) {
+    tips.push({ icon: '💨', text: `Vent à ${Math.round(curr.windSpeed)} km/h — excellent pour les éoliennes. Si votre fournisseur propose du 100% renouvelable, c'est le moment de switcher !`, badge: 'ÉNERGIE ÉOLIENNE' });
   }
   if (isDaytime) {
     tips.push({ icon: '🔌', text: 'Chargez vos appareils en journée quand le réseau est moins chargé et l\'électricité plus propre !', badge: 'CHARGE INTELLIGENTE' });
@@ -1235,7 +1199,10 @@ function generateEcoTip(curr) {
 // SHARE
 // ══════════════════════════════════════════════════
 function updateShareUrl(city) {
-  const url = `${location.origin}${location.pathname}?city=${encodeURIComponent(city)}`;
+  const base = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? location.origin + location.pathname
+    : 'https://mbroch.github.io/meteo-cosmos/index.html';
+  const url = base + '?city=' + encodeURIComponent(city);
   document.getElementById('share-url').textContent = url;
   window._shareUrl = url;
   window._shareCity = city;
@@ -1249,8 +1216,8 @@ function copyLink() {
 function shareTwitter() {
   if (!currentData) return;
   const city = currentData.name;
-  const temp = toDisplay(currentData.main.temp);
-  const desc = currentData.weather[0].description;
+  const temp = toDisplay(currentData.temp);
+  const desc = currentData.desc;
   const text = `Regardez la météo à ${city} en ce moment ! ${temp}${unitLabel()}, ${desc} 🌍✨ ${window._shareUrl}`;
   window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
 }
@@ -1258,8 +1225,8 @@ function shareTwitter() {
 function shareWhatsApp() {
   if (!currentData) return;
   const city = currentData.name;
-  const temp = toDisplay(currentData.main.temp);
-  const desc = currentData.weather[0].description;
+  const temp = toDisplay(currentData.temp);
+  const desc = currentData.desc;
   const text = `Regardez la météo à ${city} en ce moment ! ${temp}${unitLabel()}, ${desc} 🌍 ${window._shareUrl}`;
   window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
 }
@@ -1282,19 +1249,11 @@ window.addEventListener('load', () => {
   speechSynth.addEventListener('voiceschanged', () => speechSynth.getVoices());
 
   if (sharedCity) {
-    document.getElementById('loader-text').textContent = `Chargement de ${sharedCity}...`;
+    document.getElementById('loader-text').textContent = 'Chargement de ' + sharedCity + '...';
     document.getElementById('search-input').value = sharedCity;
-    setTimeout(() => {
-      if (apiKey) fetchByCity(sharedCity);
-      else {
-        document.getElementById('loader').classList.add('hidden');
-        showToast('⚠️ Entrez votre clé API pour continuer');
-      }
-    }, 500);
-  } else if (apiKey) {
-    geolocate();
+    fetchByCity(sharedCity);
   } else {
-    document.getElementById('loader').classList.add('hidden');
+    geolocate();
   }
 });
 
