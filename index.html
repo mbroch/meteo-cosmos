@@ -857,7 +857,7 @@ async function fetchWeather(lat, lon, cityName, countryCode) {
 async function fetchByCity(city) {
   try {
     const res = await fetch(
-      'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(city) + '&count=5&language=fr&format=json'
+      'https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(city) + '&count=15&language=fr&format=json'
     ).then(r => r.json());
     const results = res.results || [];
     if (!results.length) { showToast('Ville introuvable'); return; }
