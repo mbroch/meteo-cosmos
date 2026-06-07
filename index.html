@@ -257,18 +257,29 @@
     font-family: var(--font-body); text-transform: uppercase; margin-bottom: .5rem;
   }
   .city-datetime {
-    display: flex; align-items: center; gap: 1rem;
-    margin-bottom: 1.5rem; flex-wrap: wrap;
+    display: flex; align-items: center; gap: .8rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: nowrap;          /* jamais de saut de ligne */
+    overflow: hidden;
+    min-width: 0;
   }
   .city-date {
-    font-family: var(--font-ui); font-size: .9rem;
-    color: var(--text-secondary); letter-spacing: .04em;
+    font-family: var(--font-ui); font-size: .85rem;
+    color: var(--text-secondary); letter-spacing: .03em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex-shrink: 1;
   }
   .city-clock {
-    font-family: var(--font-display); font-size: 1.1rem;
-    font-weight: 700; letter-spacing: .12em;
+    font-family: var(--font-display); font-size: 1rem;
+    font-weight: 700; letter-spacing: .1em;
     color: var(--neon-cyan);
     filter: drop-shadow(0 0 6px rgba(34,211,238,.5));
+    white-space: nowrap;
+    flex-shrink: 0;             /* l'heure ne se compresse jamais */
+    font-variant-numeric: tabular-nums; /* chiffres à largeur fixe */
   }
   .city-clock-sep {
     animation: blink-sep 1s step-end infinite;
