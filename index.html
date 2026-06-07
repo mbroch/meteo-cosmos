@@ -918,7 +918,8 @@ async function fetchWeather(lat, lon, cityName, countryCode) {
       visibility: (c.visibility || 0) / 1000,
       desc: wmo.desc, cond: wmo.cond, isDay: c.is_day,
       sunrise: data.daily.sunrise[0], sunset: data.daily.sunset[0],
-      uv: data.daily.uv_index_max[0], lat, lon, raw: data
+      //mb uv: data.daily.uv_index_max[0], lat, lon, raw: data
+      uv: data.daily.uv_index_max[0], lat, lon, timezone: data.timezone, raw: data
     };
     forecastData = data.hourly.time.slice(0, 24).map((t, i) => ({
       time: new Date(t),
@@ -1491,13 +1492,12 @@ window.addEventListener('resize', () => {
 
 // ── LIVE CLOCK ──────────────────────────────────────
 function updateClock() {
+  const tz = currentData?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const now = new Date();
-  const dayNames = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
-  const monthNames = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
-  const dateStr = dayNames[now.getDay()] + ' ' + now.getDate() + ' ' + monthNames[now.getMonth()] + ' ' + now.getFullYear();
-  const h = String(now.getHours()).padStart(2,'0');
-  const m = String(now.getMinutes()).padStart(2,'0');
-  const s = String(now.getSeconds()).padStart(2,'0');
+  const dateStr = now.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long', year:'numeric', timeZone: tz });
+  const h = now.toLocaleString('fr-FR', { hour:'2-digit',   timeZone: tz, hour12: false });
+  const m = now.toLocaleString('fr-FR', { minute:'2-digit', timeZone: tz });
+  const s = now.toLocaleString('fr-FR', { second:'2-digit', timeZone: tz });
   const clockStr = h + '<span class="city-clock-sep">:</span>' + m + '<span class="city-clock-sep">:</span>' + s;
   const dateEl = document.getElementById('city-date');
   const clockEl = document.getElementById('city-clock');
