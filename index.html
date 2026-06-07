@@ -220,8 +220,26 @@
   }
   .city-country {
     font-size: 1rem; color: var(--text-secondary); letter-spacing: .1em;
-    font-family: var(--font-body); text-transform: uppercase; margin-bottom: 1.5rem;
+    font-family: var(--font-body); text-transform: uppercase; margin-bottom: .5rem;
   }
+  .city-datetime {
+    display: flex; align-items: center; gap: 1rem;
+    margin-bottom: 1.5rem; flex-wrap: wrap;
+  }
+  .city-date {
+    font-family: var(--font-ui); font-size: .9rem;
+    color: var(--text-secondary); letter-spacing: .04em;
+  }
+  .city-clock {
+    font-family: var(--font-display); font-size: 1.1rem;
+    font-weight: 700; letter-spacing: .12em;
+    color: var(--neon-cyan);
+    filter: drop-shadow(0 0 6px rgba(34,211,238,.5));
+  }
+  .city-clock-sep {
+    animation: blink-sep 1s step-end infinite;
+  }
+  @keyframes blink-sep { 0%,100%{opacity:1} 50%{opacity:.2} }
 
   .temp-row {
     display: flex; align-items: flex-end; gap: 1.5rem; margin-bottom: 1rem;
@@ -538,6 +556,10 @@
     <div class="hero-card" id="hero-card">
       <div class="city-name" id="city-name">—</div>
       <div class="city-country" id="city-country">Localisation en attente</div>
+      <div class="city-datetime">
+        <span class="city-date" id="city-date"></span>
+        <span class="city-clock" id="city-clock"></span>
+      </div>
       <div class="temp-row">
         <div class="temp-main" id="temp-main">—</div>
         <div class="temp-unit" id="temp-unit">°C</div>
@@ -932,11 +954,30 @@ document.addEventListener('click', e => {
   if (!e.target.closest('.search-bar')) closeSuggestions();
 });
 
+async function reverseGeocode(lat, lon) {
+  try {
+    const res = await fetch(
+      'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lon
+      + '&format=json&accept-language=fr',
+      { headers: { 'Accept-Language': 'fr' } }
+    ).then(r => r.json());
+    const addr = res.address || {};
+    const city = addr.city || addr.town || addr.village || addr.municipality || addr.county || 'Position actuelle';
+    const country = addr.country_code ? addr.country_code.toUpperCase() : '';
+    return { city, country };
+  } catch(e) {
+    return { city: 'Position actuelle', country: '' };
+  }
+}
+
 function geolocate() {
   if (!navigator.geolocation) { fetchByCity('Paris'); return; }
   document.getElementById('loader-text').textContent = 'Géolocalisation...';
   navigator.geolocation.getCurrentPosition(
-    pos => fetchWeather(pos.coords.latitude, pos.coords.longitude, null, null),
+    async pos => {
+      const { city, country } = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+      await fetchWeather(pos.coords.latitude, pos.coords.longitude, city, country);
+    },
     () => fetchByCity('Paris')
   );
 }
@@ -1280,6 +1321,24 @@ window.addEventListener('resize', () => {
     if (forecastData) drawForecastChart(forecastData);
   }, 300);
 });
+
+// ── LIVE CLOCK ──────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  const dayNames = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+  const monthNames = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+  const dateStr = dayNames[now.getDay()] + ' ' + now.getDate() + ' ' + monthNames[now.getMonth()] + ' ' + now.getFullYear();
+  const h = String(now.getHours()).padStart(2,'0');
+  const m = String(now.getMinutes()).padStart(2,'0');
+  const s = String(now.getSeconds()).padStart(2,'0');
+  const clockStr = h + '<span class="city-clock-sep">:</span>' + m + '<span class="city-clock-sep">:</span>' + s;
+  const dateEl = document.getElementById('city-date');
+  const clockEl = document.getElementById('city-clock');
+  if (dateEl) dateEl.textContent = dateStr;
+  if (clockEl) clockEl.innerHTML = clockStr;
+}
+updateClock();
+setInterval(updateClock, 1000);
 </script>
 <div id="suggestions"></div>
 </body>
