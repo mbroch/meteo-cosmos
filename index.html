@@ -57,6 +57,8 @@
     position: relative; z-index: 10;
     min-height: 100vh;
     display: flex; flex-direction: column;
+    width: 100%;
+    overflow-x: hidden;
   }
 
   /* ── HEADER ── */
@@ -168,13 +170,27 @@
     grid-template-rows: auto 1fr;
     gap: 1.5rem;
     padding: 1.5rem 2rem 2rem;
-    max-width: 1400px; margin: 0 auto; width: 100%;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* ── RESPONSIVE BREAKPOINTS ── */
+  @media (max-width: 1100px) {
+    main { grid-template-columns: 1fr 300px; }
   }
 
   @media (max-width: 900px) {
-    main { grid-template-columns: 1fr; }
+    main {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto;
+      padding: 1rem;
+    }
     header { padding: 1rem; }
     .logo { font-size: 1rem; }
+    .hero-card { grid-column: 1; grid-row: auto; }
+    .chart-card { grid-column: 1; grid-row: auto; }
+    .sidebar    { grid-column: 1; grid-row: auto; }
   }
 
   @media (max-width: 600px) {
@@ -190,6 +206,7 @@
       flex: 0 0 100%;
       max-width: 100%;
     }
+    main { padding: .75rem; gap: .75rem; }
   }
 
   /* ── HERO CARD ── */
@@ -289,7 +306,7 @@
     padding: 1.5rem;
     backdrop-filter: blur(16px);
     min-height: 280px;
-    position: relative; overflow: hidden;
+    position: relative; overflow: visible;
   }
   .card-title {
     font-family: var(--font-display); font-size: .85rem; font-weight: 700;
@@ -302,17 +319,28 @@
     border-radius: 2px; flex-shrink: 0;
   }
 
-  #forecast-svg { width: 100%; overflow: visible; }
+  #forecast-scroll-wrap {
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+    cursor: grab;
+    padding-bottom: .4rem;
+    /* custom scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(56,189,248,.4) rgba(56,189,248,.07);
+  }
+  #forecast-scroll-wrap::-webkit-scrollbar { height: 4px; }
+  #forecast-scroll-wrap::-webkit-scrollbar-track { background: rgba(56,189,248,.07); border-radius: 2px; }
+  #forecast-scroll-wrap::-webkit-scrollbar-thumb { background: rgba(56,189,248,.4); border-radius: 2px; }
+  #forecast-scroll-wrap:active { cursor: grabbing; }
+  #forecast-svg { display: block; overflow: visible; }
 
   /* ── SIDEBAR ── */
   .sidebar {
     grid-column: 2; grid-row: 1 / 3;
     display: flex; flex-direction: column; gap: 1rem;
   }
-  @media (max-width: 900px) {
-    .sidebar { grid-column: 1; grid-row: auto; }
-    main { grid-template-rows: auto auto; }
-  }
+
 
   /* ── NARRATION CARD ── */
   .narration-card {
@@ -584,7 +612,7 @@
         <div class="stat-item">
           <div class="stat-label">Pression</div>
           <div class="stat-value" id="pressure">—</div>
-          <div class="stat-unit">hPa</div>
+          <div class="stat-unit">kPa</div>
         </div>
         <div class="stat-item">
           <div class="stat-label">Visibilité</div>
@@ -594,7 +622,7 @@
         <div class="stat-item">
           <div class="stat-label">UV Index</div>
           <div class="stat-value" id="uv">—</div>
-          <div class="stat-unit"></div>
+          <div class="stat-unit" id="uv-label" style="margin-top:.2rem;font-size:.75rem;font-weight:600;"></div>
         </div>
         <div class="stat-item" style="grid-column: span 2;">
           <div class="stat-label">Lever / Coucher</div>
@@ -614,8 +642,10 @@
 
     <!-- D3 FORECAST CHART -->
     <div class="chart-card">
-      <div class="card-title">Prévisions 24h — Température & Précipitations</div>
-      <svg id="forecast-svg" height="200"></svg>
+      <div class="card-title">Prévisions 24h — Température &amp; Précipitations</div>
+      <div id="forecast-scroll-wrap">
+        <svg id="forecast-svg"></svg>
+      </div>
     </div>
 
     <!-- SIDEBAR -->
@@ -848,7 +878,7 @@ async function fetchWeather(lat, lon, cityName, countryCode) {
       + '&current=temperature_2m,relative_humidity_2m,apparent_temperature,'
       + 'precipitation,weather_code,wind_speed_10m,wind_direction_10m,'
       + 'surface_pressure,visibility,is_day'
-      + '&hourly=temperature_2m,precipitation_probability,weather_code'
+      + '&hourly=temperature_2m,precipitation_probability,precipitation,snowfall,weather_code'
       + '&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max'
       + '&timezone=auto&forecast_days=6';
     const data = await fetch(url).then(r => r.json());
@@ -865,8 +895,11 @@ async function fetchWeather(lat, lon, cityName, countryCode) {
       uv: data.daily.uv_index_max[0], lat, lon, raw: data
     };
     forecastData = data.hourly.time.slice(0, 24).map((t, i) => ({
-      time: new Date(t), temp: data.hourly.temperature_2m[i],
+      time: new Date(t),
+      temp: data.hourly.temperature_2m[i],
       pop: data.hourly.precipitation_probability[i] || 0,
+      precip: data.hourly.precipitation[i] || 0,
+      snow: data.hourly.snowfall[i] || 0,
       cond: wmoDesc(data.hourly.weather_code[i]).cond
     }));
     updateUI(currentData, forecastData, data.daily);
@@ -1013,9 +1046,22 @@ function updateUI(curr, fore, daily) {
   document.getElementById('feels-like').textContent = toDisplay(curr.feelsLike);
   document.getElementById('humidity').textContent = curr.humidity;
   document.getElementById('wind').textContent = Math.round(curr.windSpeed);
-  document.getElementById('pressure').textContent = Math.round(curr.pressure);
+  document.getElementById('pressure').textContent = (curr.pressure / 10).toFixed(1);
   document.getElementById('visibility').textContent = curr.visibility.toFixed(1);
-  document.getElementById('uv').textContent = curr.uv != null ? curr.uv : '—';
+  const uvVal = curr.uv != null ? curr.uv : null;
+  document.getElementById('uv').textContent = uvVal != null ? uvVal : '—';
+  const uvEl = document.getElementById('uv-label');
+  if (uvVal != null && uvEl) {
+    let uvIcon, uvText, uvColor;
+    if      (uvVal <= 2)  { uvIcon='🟢'; uvText='Faible';     uvColor='#4ade80'; }
+    else if (uvVal <= 5)  { uvIcon='🟡'; uvText='Modéré';     uvColor='#fbbf24'; }
+    else if (uvVal <= 7)  { uvIcon='🟠'; uvText='Élevé';      uvColor='#fb923c'; }
+    else if (uvVal <= 10) { uvIcon='🔴'; uvText='Très élevé'; uvColor='#f87171'; }
+    else                  { uvIcon='🟣'; uvText='Extrême';    uvColor='#a78bfa'; }
+    uvEl.innerHTML = uvIcon + ' ' + uvText;
+    uvEl.style.color = uvColor;
+    document.getElementById('uv').style.color = uvColor;
+  }
   const fmtTime = s => new Date(s).toLocaleTimeString('fr',{hour:'2-digit',minute:'2-digit'});
   document.getElementById('sun-times').textContent = fmtTime(curr.sunrise) + ' / ' + fmtTime(curr.sunset);
   const windDeg = curr.windDeg || 0;
@@ -1037,99 +1083,194 @@ function drawForecastChart(fore) {
   const svg = d3.select('#forecast-svg');
   svg.selectAll('*').remove();
 
-  const container = document.getElementById('forecast-svg').parentElement;
-  const W = container.clientWidth - 32;
-  const H = 200;
-  const margin = {top: 20, right: 20, bottom: 40, left: 45};
-  const iW = W - margin.left - margin.right;
-  const iH = H - margin.top - margin.bottom;
+  const COL_W = 56;          // px per hour column
+  const N     = fore.length; // 24 points
+  const margin = {top: 30, right: 16, bottom: 72, left: 48};
+  const iH    = 160;
+  const iW    = COL_W * N;
+  const W     = iW + margin.left + margin.right;
+  const H     = iH + margin.top + margin.bottom;
 
-  svg.attr('viewBox', `0 0 ${W} ${H}`).attr('height', H);
+  svg.attr('width', W).attr('height', H);
 
-  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+  // Gradient defs
+  const defs = svg.append('defs');
+  const tempGrad = defs.append('linearGradient').attr('id','fg-temp-grad').attr('x1','0%').attr('y1','0%').attr('x2','0%').attr('y2','100%');
+  tempGrad.append('stop').attr('offset','0%').attr('stop-color','rgba(56,189,248,.45)');
+  tempGrad.append('stop').attr('offset','100%').attr('stop-color','rgba(56,189,248,0)');
 
-  // Take next 8 hourly slots
-  const data = fore.slice(0, 8).map(d => ({
-    time: d.time,
-    temp: d.temp,
-    pop: d.pop
-  }));
+  const rainGrad = defs.append('linearGradient').attr('id','fg-rain-grad').attr('x1','0%').attr('y1','0%').attr('x2','0%').attr('y2','100%');
+  rainGrad.append('stop').attr('offset','0%').attr('stop-color','rgba(56,189,248,.7)');
+  rainGrad.append('stop').attr('offset','100%').attr('stop-color','rgba(56,189,248,.2)');
 
-  const x = d3.scaleTime().domain(d3.extent(data, d => d.time)).range([0, iW]);
+  const snowGrad = defs.append('linearGradient').attr('id','fg-snow-grad').attr('x1','0%').attr('y1','0%').attr('x2','0%').attr('y2','100%');
+  snowGrad.append('stop').attr('offset','0%').attr('stop-color','rgba(200,230,255,.8)');
+  snowGrad.append('stop').attr('offset','100%').attr('stop-color','rgba(200,230,255,.15)');
+
+  const g = svg.append('g').attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
+
+  const x = d3.scaleBand().domain(d3.range(N)).range([0, iW]).padding(0.25);
+
+  // Temp Y scale
+  const tempMin = d3.min(fore, d => d.temp);
+  const tempMax = d3.max(fore, d => d.temp);
   const yTemp = d3.scaleLinear()
-    .domain([d3.min(data, d => d.temp) - 2, d3.max(data, d => d.temp) + 2])
+    .domain([tempMin - 3, tempMax + 3])
     .range([iH, 0]);
-  const yPop = d3.scaleLinear().domain([0, 100]).range([iH, 0]);
 
-  // Grid lines
-  g.append('g').attr('class', 'grid')
+  // Precip Y scale (separate right axis)
+  const precipMax = Math.max(d3.max(fore, d => d.precip + d.snow), 0.5);
+  const yPrecip = d3.scaleLinear().domain([0, precipMax * 3]).range([iH, 0]);
+
+  // ── Grid lines ──
+  g.append('g').attr('class','grid')
     .call(d3.axisLeft(yTemp).ticks(4).tickSize(-iW).tickFormat(''))
-    .selectAll('line')
-    .attr('stroke', 'rgba(56,189,248,.1)').attr('stroke-dasharray', '4,4');
+    .selectAll('line').attr('stroke','rgba(56,189,248,.08)').attr('stroke-dasharray','4,3');
   g.select('.grid .domain').remove();
 
-  // Rain bars
-  const barW = Math.max(iW / data.length - 4, 4);
-  g.selectAll('.rain-bar')
-    .data(data).enter().append('rect')
-    .attr('class', 'rain-bar')
-    .attr('x', d => x(d.time) - barW / 2)
-    .attr('y', d => yPop(d.pop))
-    .attr('width', barW)
-    .attr('height', d => iH - yPop(d.pop))
-    .attr('fill', 'rgba(56,189,248,.15)')
-    .attr('rx', 3);
+  // ── Hour separators ──
+  fore.forEach((d, i) => {
+    if (i % 3 === 0 && i > 0) {
+      g.append('line')
+        .attr('x1', x(i) + x.bandwidth()/2 - x.step()/2)
+        .attr('x2', x(i) + x.bandwidth()/2 - x.step()/2)
+        .attr('y1', -8).attr('y2', iH)
+        .attr('stroke','rgba(56,189,248,.12)').attr('stroke-dasharray','2,3');
+    }
+  });
 
-  // Temperature area
+  // ── Precipitation bars (rain + snow stacked) ──
+  fore.forEach((d, i) => {
+    const bx = x(i);
+    const bw = x.bandwidth();
+
+    // rain
+    if (d.precip > 0) {
+      const barH = iH - yPrecip(d.precip);
+      g.append('rect')
+        .attr('x', bx).attr('y', iH - barH)
+        .attr('width', bw).attr('height', barH)
+        .attr('fill','url(#fg-rain-grad)').attr('rx', 2);
+    }
+    // snow on top
+    if (d.snow > 0) {
+      const snowH = iH - yPrecip(d.snow);
+      const rainH = d.precip > 0 ? iH - yPrecip(d.precip) : 0;
+      g.append('rect')
+        .attr('x', bx).attr('y', iH - rainH - snowH)
+        .attr('width', bw).attr('height', snowH)
+        .attr('fill','url(#fg-snow-grad)').attr('rx', 2);
+    }
+
+    // label mm/cm if significant
+    const total = d.precip + d.snow;
+    if (total >= 0.1) {
+      const labelY = iH - (iH - yPrecip(total)) - 4;
+      const isSnow = d.snow > 0 && d.precip === 0;
+      g.append('text')
+        .attr('x', bx + bw/2).attr('y', labelY)
+        .attr('text-anchor','middle')
+        .attr('fill', isSnow ? 'rgba(200,230,255,.9)' : 'rgba(56,189,248,.9)')
+        .attr('font-size', 8).attr('font-family','Inter,sans-serif')
+        .text((isSnow ? d.snow.toFixed(1)+'cm' : d.precip.toFixed(1)+'mm'));
+    }
+  });
+
+  // ── Temperature area ──
+  const xMid = i => x(i) + x.bandwidth() / 2;
   const areaGen = d3.area()
-    .x(d => x(d.time)).y0(iH).y1(d => yTemp(d.temp))
+    .x((d,i) => xMid(i)).y0(iH).y1(d => yTemp(d.temp))
     .curve(d3.curveCatmullRom.alpha(.5));
   const lineGen = d3.line()
-    .x(d => x(d.time)).y(d => yTemp(d.temp))
+    .x((d,i) => xMid(i)).y(d => yTemp(d.temp))
     .curve(d3.curveCatmullRom.alpha(.5));
 
-  const defs = svg.append('defs');
-  const grad = defs.append('linearGradient').attr('id', 'temp-grad').attr('x1','0%').attr('y1','0%').attr('x2','0%').attr('y2','100%');
-  grad.append('stop').attr('offset','0%').attr('stop-color','rgba(56,189,248,.4)');
-  grad.append('stop').attr('offset','100%').attr('stop-color','rgba(56,189,248,0)');
+  g.append('path').datum(fore).attr('d', areaGen).attr('fill','url(#fg-temp-grad)');
+  g.append('path').datum(fore).attr('d', lineGen)
+    .attr('fill','none').attr('stroke','#38bdf8').attr('stroke-width', 2)
+    .attr('filter','drop-shadow(0 0 4px rgba(56,189,248,.7))');
 
-  g.append('path').datum(data).attr('d', areaGen).attr('fill', 'url(#temp-grad)').attr('transform', `translate(0,0)`);
-  g.append('path').datum(data).attr('d', lineGen)
-    .attr('fill','none').attr('stroke','#38bdf8').attr('stroke-width', 2.5)
-    .attr('filter', 'drop-shadow(0 0 4px rgba(56,189,248,.8))');
-
-  // Dots + tooltip
+  // ── Dots + tooltip ──
   const tooltip = document.getElementById('tooltip');
-  g.selectAll('.dot').data(data).enter().append('circle')
-    .attr('class', 'dot')
-    .attr('cx', d => x(d.time)).attr('cy', d => yTemp(d.temp))
-    .attr('r', 5).attr('fill', '#38bdf8').attr('stroke', '#020817').attr('stroke-width', 2)
-    .style('cursor', 'pointer')
+  g.selectAll('.dot').data(fore).enter().append('circle')
+    .attr('class','dot')
+    .attr('cx',(d,i) => xMid(i)).attr('cy', d => yTemp(d.temp))
+    .attr('r', 4).attr('fill','#38bdf8').attr('stroke','#020817').attr('stroke-width', 1.5)
+    .style('cursor','pointer')
     .on('mousemove', (event, d) => {
+      const hhmm = d.time.toLocaleTimeString('fr',{hour:'2-digit',minute:'2-digit'});
+      const icon = WMO_ICON[d.cond] || '🌡️';
+      let tip = '<b>' + hhmm + '</b> ' + icon + '<br>'
+        + toDisplay(d.temp) + unitLabel() + ' &nbsp;💧 ' + d.pop + '%';
+      if (d.precip > 0) tip += '<br>🌧 ' + d.precip.toFixed(1) + ' mm';
+      if (d.snow  > 0) tip += '<br>❄️ ' + d.snow.toFixed(1)  + ' cm';
       tooltip.style.display = 'block';
-      tooltip.style.left = (event.clientX + 12) + 'px';
-      tooltip.style.top = (event.clientY - 12) + 'px';
-      tooltip.innerHTML = `<b>${d.time.toLocaleTimeString('fr',{hour:'2-digit',minute:'2-digit'})}</b><br>${toDisplay(d.temp)}${unitLabel()} &nbsp;💧 ${Math.round(d.pop)}%`;
+      tooltip.style.left = (event.clientX + 14) + 'px';
+      tooltip.style.top  = (event.clientY - 14) + 'px';
+      tooltip.innerHTML = tip;
     })
     .on('mouseleave', () => tooltip.style.display = 'none');
 
-  // Temp labels
-  g.selectAll('.tlabel').data(data).enter().append('text')
-    .attr('class', 'tlabel')
-    .attr('x', d => x(d.time)).attr('y', d => yTemp(d.temp) - 10)
-    .attr('text-anchor', 'middle')
-    .attr('fill', '#e2f0ff').attr('font-size', 10).attr('font-family', 'Rajdhani,sans-serif')
-    .text(d => toDisplay(d.temp) + unitLabel());
+  // ── Temp labels (every 3h to avoid clutter) ──
+  g.selectAll('.tlabel').data(fore).enter().append('text')
+    .attr('class','tlabel')
+    .attr('x',(d,i) => xMid(i)).attr('y', d => yTemp(d.temp) - 8)
+    .attr('text-anchor','middle')
+    .attr('fill','#e2f0ff').attr('font-size', 9).attr('font-family','Rajdhani,sans-serif')
+    .attr('display',(d,i) => i % 2 === 0 ? null : 'none')
+    .text(d => toDisplay(d.temp) + '°');
 
-  // X Axis
-  g.append('g').attr('transform', `translate(0,${iH})`)
-    .call(d3.axisBottom(x).ticks(data.length).tickFormat(d3.timeFormat('%Hh')))
-    .selectAll('text').attr('fill', 'rgba(180,220,255,.6)').attr('font-size', 10);
-  g.selectAll('.domain, .tick line').attr('stroke', 'rgba(56,189,248,.2)');
+  // ── Weather icons (every 3h) ──
+  fore.forEach((d, i) => {
+    if (i % 3 !== 0) return;
+    const icon = WMO_ICON[d.cond] || '🌡️';
+    g.append('text')
+      .attr('x', xMid(i)).attr('y', iH + 28)
+      .attr('text-anchor','middle').attr('font-size', 14)
+      .text(icon);
+  });
 
-  // Y Axis
-  g.append('g').call(d3.axisLeft(yTemp).ticks(4).tickFormat(d => toDisplay(d) + unitLabel()))
-    .selectAll('text').attr('fill', 'rgba(180,220,255,.6)').attr('font-size', 10);
+  // ── X Axis ──
+  const xAxis = g.append('g').attr('transform','translate(0,' + iH + ')');
+  fore.forEach((d, i) => {
+    const hh = d.time.getHours();
+    if (i % 2 !== 0) return;
+    xAxis.append('text')
+      .attr('x', xMid(i)).attr('y', 14)
+      .attr('text-anchor','middle')
+      .attr('fill', hh === 0 ? 'rgba(167,139,250,.9)' : 'rgba(180,220,255,.6)')
+      .attr('font-size', hh === 0 ? 9 : 9)
+      .attr('font-family','Inter,sans-serif')
+      .attr('font-weight', hh === 0 ? 700 : 400)
+      .text(hh === 0
+        ? d.time.toLocaleDateString('fr',{weekday:'short'}).toUpperCase()
+        : String(hh).padStart(2,'0') + 'h');
+  });
+
+  // ── Left Y Axis (temp) ──
+  g.append('g').call(d3.axisLeft(yTemp).ticks(4).tickFormat(d => toDisplay(d) + '°'))
+    .selectAll('text').attr('fill','rgba(180,220,255,.65)').attr('font-size', 9);
+  g.selectAll('.domain').attr('stroke','rgba(56,189,248,.15)');
+  g.selectAll('.tick line').attr('stroke','rgba(56,189,248,.15)');
+
+  // ── Legend ──
+  const leg = g.append('g').attr('transform','translate(' + (iW - 130) + ',' + (-24) + ')');
+  leg.append('rect').attr('width',10).attr('height',10).attr('rx',2).attr('fill','rgba(56,189,248,.5)').attr('y',-1);
+  leg.append('text').attr('x',14).attr('y',8).attr('fill','rgba(180,220,255,.7)').attr('font-size',9).attr('font-family','Inter,sans-serif').text('Pluie (mm)');
+  leg.append('rect').attr('width',10).attr('height',10).attr('rx',2).attr('fill','rgba(200,230,255,.5)').attr('y',-1).attr('x',70);
+  leg.append('text').attr('x',84).attr('y',8).attr('fill','rgba(180,220,255,.7)').attr('font-size',9).attr('font-family','Inter,sans-serif').text('Neige (cm)');
+
+  // ── Drag to scroll ──
+  const wrap = document.getElementById('forecast-scroll-wrap');
+  let isDown = false, startX, scrollLeft;
+  wrap.addEventListener('mousedown', e => { isDown = true; startX = e.pageX - wrap.offsetLeft; scrollLeft = wrap.scrollLeft; });
+  wrap.addEventListener('mouseleave', () => isDown = false);
+  wrap.addEventListener('mouseup', () => isDown = false);
+  wrap.addEventListener('mousemove', e => {
+    if (!isDown) return;
+    e.preventDefault();
+    wrap.scrollLeft = scrollLeft - (e.pageX - wrap.offsetLeft - startX);
+  });
 }
 
 // ══════════════════════════════════════════════════
